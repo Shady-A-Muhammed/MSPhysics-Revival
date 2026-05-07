@@ -22,7 +22,7 @@ VALUE MSP::Newton::rbf_get_version(VALUE self) {
     //return rb_sprintf("%d.%d", NEWTON_MAJOR_VERSION, NEWTON_MINOR_VERSION);
     char version_str[16];
     sprintf(version_str, "%d.%d", NEWTON_MAJOR_VERSION, NEWTON_MINOR_VERSION);
-    return rb_str_new2(version_str);
+    return rb_utf8_str_new_cstr(version_str);
 }
 
 VALUE MSP::Newton::rbf_get_float_size(VALUE self) {
