@@ -1,25 +1,27 @@
-// Copied and extended from Thomthom's TT_lib2.
+// MSPhysics Revival - Updated for Ruby 3.2 (SketchUp 2024+)
+// Original by Thomthom/TT_lib2, extended by MSPhysics team
+// Updated 2026: removed Ruby 1.8/2.0 legacy, added Ruby 3.x support
 
 #ifndef RUBY_PREP_H
 #define RUBY_PREP_H
 
+// -----------------------------------------------------------------------
+// Platform detection
+// -----------------------------------------------------------------------
 #ifdef _MSC_VER
     #ifdef _M_X64
-        #ifndef _WIN_64_VER
-            #define _WIN_64_VER
-        #endif
+        #define _WIN_64_VER
     #else
-        #ifndef _WIN_32_VER
-            #define _WIN_32_VER
-        #endif
+        #define _WIN_32_VER
     #endif
 #else
-    #ifndef _MACOSX_VER
-        #define _MACOSX_VER
-    #endif
+    #define _MACOSX_VER
 #endif
 
-#if (defined (_WIN_32_VER) || defined (_WIN_64_VER))
+// -----------------------------------------------------------------------
+// SIMD headers
+// -----------------------------------------------------------------------
+#if defined(_WIN_32_VER) || defined(_WIN_64_VER)
     #include <intrin.h>
     #include <emmintrin.h>
 #endif
@@ -28,77 +30,60 @@
     #include <unistd.h>
     #include <sys/sysctl.h>
     #include <assert.h>
-    #if (defined __i386__ || defined __x86_64__)
+    #if defined(__i386__) || defined(__x86_64__)
         #include <fenv.h>
         #include <pmmintrin.h>
-        #include <emmintrin.h> // sse3
+        #include <emmintrin.h>
         #include <mmintrin.h>
-        #ifdef __SSE4_1__
-            #include <smmintrin.h>
+    #endif
+#endif
+
+// -----------------------------------------------------------------------
+// Ruby 3.x MSVC configuration
+// Ruby in SketchUp 2024+ is built with /MD. These defines ensure our
+// extension links against the same runtime.
+// -----------------------------------------------------------------------
+#if _MT
+    #if _MSC_VER >= 1800  // VS 2013+
+        #define HAVE_ACOSH 1
+        #define HAVE_CBRT  1
+        #define HAVE_ERF   1
+        #define HAVE_TGAMMA 1
+        #define HAVE_ROUND 1
+        #define HAVE_NEXTAFTER 1
+    #endif
+
+    #if _MSC_VER >= 1900  // VS 2015+
+        #ifndef HAVE_STRUCT_TIMESPEC
+            #define HAVE_STRUCT_TIMESPEC 1
         #endif
     #endif
 #endif
 
-// Visual Studio CRT Config
-
-// Must disable the min/max macros defined by windows.h to avoid conflict with
-// std::max and std:min. Ruby includes windows.h so it must be disabled here.
-// http://stackoverflow.com/a/2789509/486990
-#define NOMINMAX
-
-// Ruby in SketchUp was configured with /MD and the headers reflect that.
-// And from Ruby version to Ruby version the configuration needs to be slightly
-// different. These macros smooth over this and should allow the project
-// to be built with newer Visual Studio runtimes as well as /MT.
-
-#if _MT
-
-    // Visual Studio 2013
-    #if _MSC_VER >= 1800
-
-        // Ruby 2.0
-        #define HAVE_ACOSH 1
-        #define HAVE_CBRT 1
-        #define HAVE_ERF 1
-        #define HAVE_TGAMMA 1
-        #define HAVE_ROUND 1
-
-        // Ruby 2.2
-        #define HAVE_NEXTAFTER 1
-
-    #endif // VS 2013
-
-    // Visual Studio 2015
-    #if _MSC_VER >= 1900
-
-        #ifndef HAVE_STRUCT_TIMESPEC
-            #ifndef RUBY_VERSION25
-                #define HAVE_STRUCT_TIMESPEC 1
-            #endif
-        #endif
-
-    #endif // VS2015
-
-#endif // _MT
-
+// -----------------------------------------------------------------------
 // Ruby Headers
-#ifdef USE_WINSOCK
+// Winsock must come BEFORE ruby.h to avoid winsock/winsock2 conflict
+// -----------------------------------------------------------------------
+#if defined(_WIN_32_VER) || defined(_WIN_64_VER)
+    #define NOMINMAX        // prevent windows.h min/max macro conflicts
     #include <Winsock2.h>
 #endif
 
 #include <ruby.h>
-#ifdef HAVE_RUBY_ENCODING_H
-    #include <ruby/encoding.h>
+#include <ruby/encoding.h>
+
+// -----------------------------------------------------------------------
+// Ruby 3.2 API compatibility
+// rb_str_new2 was removed in Ruby 3.x — use rb_utf8_str_new_cstr instead.
+// Provide a shim here as a safety net in case any file was missed.
+// -----------------------------------------------------------------------
+#ifndef rb_str_new2
+    #define rb_str_new2(str) rb_utf8_str_new_cstr(str)
 #endif
 
-// Compatibility Macros
-
-/* The structures changes between Ruby 1.8 and 2.0 so the access to the
- * properties are different. There are new macros in Ruby 2.0 that should be
- * used instead. In order to make the code compile for both we need to add
- * matching macros for 1.8.
- */
-
+// -----------------------------------------------------------------------
+// Compatibility macros (Ruby 2.x still needed for some patterns)
+// -----------------------------------------------------------------------
 #ifndef RARRAY_PTR
     #define RARRAY_PTR(s) (RARRAY(s)->ptr)
 #endif
@@ -116,7 +101,7 @@
 #endif
 
 #ifndef DBL2NUM
-    #define DBL2NUM(dbl)  rb_float_new(dbl)
+    #define DBL2NUM(dbl) rb_float_new(dbl)
 #endif
 
 #ifndef NUM2SIZET
@@ -127,100 +112,68 @@
     #endif
 #endif
 
+// -----------------------------------------------------------------------
+// Function pointer casts for rb_define_method etc.
+// Ruby 3.x tightened these — VALUEFUNC/VOIDFUNC must be exact.
+// -----------------------------------------------------------------------
+#define INTFUNC(f)    ((int (*)(ANYARGS)) f)
+#define VALUEFUNC(f)  ((VALUE (*)(ANYARGS)) f)
+#define VOIDFUNC(f)   ((RUBY_DATA_FUNC) f)
 
-/*
- * Need to be very careful about how these macros are defined, especially
- * when compiling C++ code or C code with an ANSI C compiler.
- *
- * VALUEFUNC(f) is a macro used to typecast a C function that implements
- * a Ruby method so that it can be passed as an argument to API functions
- * like rb_define_method() and rb_define_singleton_method().
- *
- * VOIDFUNC(f) is a macro used to typecast a C function that implements
- * either the "mark" or "free" stuff for a Ruby Data object, so that it
- * can be passed as an argument to API functions like Data_Wrap_Struct()
- * and Data_Make_Struct().
- */
-
-#define INTFUNC(f) ((int (*)(ANYARGS)) f)
-#define VALUEFUNC(f) ((VALUE (*)(ANYARGS)) f)
-#define VOIDFUNC(f)  ((RUBY_DATA_FUNC) f)
-
-
-// Ruby 1.8 headers conflict with ostream because it defined a lot of macros
-// that completely mess up the environment.
-
-// win32.h
+// -----------------------------------------------------------------------
+// Undefine macros that Ruby/win32.h defines and that conflict with C++ STL
+// -----------------------------------------------------------------------
 #ifdef getc
     #undef getc
 #endif
-
 #ifdef putc
     #undef putc
 #endif
-
 #ifdef fgetc
     #undef fgetc
 #endif
-
 #ifdef fputc
     #undef fputc
 #endif
-
 #ifdef getchar
     #undef getchar
 #endif
-
 #ifdef putchar
     #undef putchar
 #endif
-
 #ifdef fgetchar
     #undef fgetchar
 #endif
-
 #ifdef fputchar
     #undef fputchar
 #endif
-
 #ifdef utime
     #undef utime
 #endif
-
-
 #ifdef close
     #undef close
 #endif
-
 #ifdef fclose
     #undef fclose
 #endif
-
 #ifdef read
     #undef read
 #endif
-
 #ifdef write
     #undef write
 #endif
-
 #ifdef getpid
     #undef getpid
 #endif
-
 #ifdef sleep
     #undef sleep
 #endif
-
 #ifdef connect
     #undef connect
 #endif
-
 #ifdef mode_t
     #undef mode_t
 #endif
-
-// config.h
 #ifdef inline
     #undef inline
 #endif
