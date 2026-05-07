@@ -59,7 +59,17 @@
         #endif
     #endif
 #endif
-
+// -----------------------------------------------------------------------
+// strings.h stub for MSVC (Ruby 3.2 headers require this POSIX header)
+// -----------------------------------------------------------------------
+#ifdef _MSC_VER
+  #include <string.h>
+  #ifndef _STRINGS_H
+    #define _STRINGS_H
+    #define strcasecmp  _stricmp
+    #define strncasecmp _strnicmp
+  #endif
+#endif
 // -----------------------------------------------------------------------
 // Ruby Headers
 // Winsock must come BEFORE ruby.h to avoid winsock/winsock2 conflict
