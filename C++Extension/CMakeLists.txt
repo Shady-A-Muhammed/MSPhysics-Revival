@@ -81,6 +81,7 @@ set_target_properties(msp_lib PROPERTIES
 )
 
 target_include_directories(msp_lib PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/Source/compat
   ${SRC_MAIN}
   ${SRC_WIN}
   ${RUBY_INCLUDE_DIR}
@@ -121,6 +122,7 @@ target_link_libraries(msp_lib PRIVATE
 
 if(MSVC)
   target_compile_options(msp_lib PRIVATE
+    /FI "${CMAKE_CURRENT_SOURCE_DIR}/Source/compat/strings.h"
     /W3          # reasonable warnings for our code
     /MD          # must match Ruby's runtime
     /O2
