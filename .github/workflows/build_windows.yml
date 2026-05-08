@@ -13,10 +13,10 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Setup Ruby 3.2
+    - name: Setup Ruby 3.2 (mswin - matches SketchUp 2026)
       uses: ruby/setup-ruby@v1
       with:
-        ruby-version: '3.2'
+        ruby-version: 'mswin'
         bundler: none
 
     - name: Locate Ruby headers and lib
@@ -32,14 +32,6 @@ jobs:
         echo "RUBY_LIB=$libName"      >> $env:GITHUB_ENV
         Write-Host "Include : $incDir"
         Write-Host "Lib     : $libName"
-
-    # Copy strings.h stub INTO Ruby's include dir so defines.h finds it
-    - name: Inject strings.h into Ruby include dir
-      shell: pwsh
-      run: |
-        $dest = "${{ env.RUBY_INC }}/strings.h"
-        Copy-Item "C++Extension/Source/compat/strings.h" $dest
-        Write-Host "Copied strings.h to $dest"
 
     - name: Configure CMake
       shell: pwsh
