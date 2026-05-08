@@ -13,57 +13,51 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    # Install Ruby 3.2 (x64-mingw-ucrt) + MSYS2/MinGW toolchain
     - name: Setup Ruby 3.2
       uses: ruby/setup-ruby@v1
       with:
         ruby-version: '3.2'
         bundler: none
 
-    # Install MinGW g++ compiler via ridk (comes with setup-ruby)
-    - name: Install MinGW compiler
-      run: ridk exec pacman -S --noconfirm mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-cmake
-
-    # Get Ruby paths
     - name: Locate Ruby headers and lib
       shell: pwsh
       run: |
-        $incDir   = ruby -e "puts RbConfig::CONFIG['rubyhdrdir']"
-        $incArch  = ruby -e "puts RbConfig::CONFIG['rubyarchhdrdir']"
-        $libDir   = ruby -e "puts RbConfig::CONFIG['libdir']"
-        $libName  = ruby -e "puts RbConfig::CONFIG['LIBRUBY']"
-
+        $incDir  = ruby -e "puts RbConfig::CONFIG['rubyhdrdir']"
+        $incArch = ruby -e "puts RbConfig::CONFIG['rubyarchhdrdir']"
+        $libDir  = ruby -e "puts RbConfig::CONFIG['libdir']"
+        $libName = ruby -e "puts RbConfig::CONFIG['LIBRUBY']"
         echo "RUBY_INC=$incDir"       >> $env:GITHUB_ENV
         echo "RUBY_INC_ARCH=$incArch" >> $env:GITHUB_ENV
         echo "RUBY_LIB_DIR=$libDir"   >> $env:GITHUB_ENV
         echo "RUBY_LIB=$libName"      >> $env:GITHUB_ENV
+        Write-Host "Include : $incDir"
+        Write-Host "Lib     : $libName"
 
-        Write-Host "Include  : $incDir"
-        Write-Host "Arch inc : $incArch"
-        Write-Host "Lib dir  : $libDir"
-        Write-Host "Lib name : $libName"
-
-    # Configure with MinGW Makefiles (uses g++ not cl.exe)
-    - name: Configure CMake
-      shell: cmd
+    # Copy strings.h stub INTO Ruby's include dir so defines.h finds it
+    - name: Inject strings.h into Ruby include dir
+      shell: pwsh
       run: |
-        ridk exec cmake -S C++Extension -B build ^
-          -G "MinGW Makefiles" ^
-          -DCMAKE_BUILD_TYPE=Release ^
-          -DRUBY_INCLUDE_DIR="%RUBY_INC%" ^
-          -DRUBY_INCLUDE_ARCH_DIR="%RUBY_INC_ARCH%" ^
-          -DRUBY_LIB_DIR="%RUBY_LIB_DIR%" ^
-          -DRUBY_LIB="%RUBY_LIB%"
+        $dest = "${{ env.RUBY_INC }}/strings.h"
+        Copy-Item "C++Extension/Source/compat/strings.h" $dest
+        Write-Host "Copied strings.h to $dest"
 
-    # Build
+    - name: Configure CMake
+      shell: pwsh
+      run: |
+        cmake -S C++Extension -B build `
+          -G "Visual Studio 17 2022" -A x64 `
+          -DRUBY_INCLUDE_DIR="${{ env.RUBY_INC }}" `
+          -DRUBY_INCLUDE_ARCH_DIR="${{ env.RUBY_INC_ARCH }}" `
+          -DRUBY_LIB_DIR="${{ env.RUBY_LIB_DIR }}" `
+          -DRUBY_LIB="${{ env.RUBY_LIB }}"
+
     - name: Build msp_lib
-      run: ridk exec cmake --build build --parallel
+      run: cmake --build build --config Release --parallel
 
-    # Rename .dll to .so (Ruby convention)
     - name: Rename to msp_lib.so
       shell: pwsh
       run: |
-        $dll = Get-ChildItem -Path build -Filter "msp_lib.dll" | Select-Object -First 1
+        $dll = Get-ChildItem -Path build -Recurse -Filter "msp_lib.dll" | Select-Object -First 1
         if ($dll) {
           $dest = Join-Path $dll.DirectoryName "msp_lib.so"
           Rename-Item $dll.FullName $dest
@@ -73,10 +67,9 @@ jobs:
           exit 1
         }
 
-    # Upload artifact
     - name: Upload msp_lib.so
       uses: actions/upload-artifact@v4
       with:
         name: msp_lib_win64_ruby32
-        path: build/msp_lib.so
+        path: build/Release/msp_lib.so
         if-no-files-found: error
