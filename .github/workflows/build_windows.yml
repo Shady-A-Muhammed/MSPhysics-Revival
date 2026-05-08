@@ -16,7 +16,7 @@ jobs:
     - name: Setup Ruby 3.2 (mswin - matches SketchUp 2026)
       uses: ruby/setup-ruby@v1
       with:
-        ruby-version: 'mswin'
+        ruby-version: '3.2.2-mswin'
         bundler: none
 
     - name: Locate Ruby headers and lib
