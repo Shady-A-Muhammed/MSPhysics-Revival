@@ -3,103 +3,80 @@ name: Build msp_lib Windows x64 (Ruby 3.2)
 on:
   push:
     branches: [ main, master ]
-  workflow_dispatch:   # lets you trigger it manually from GitHub
+  workflow_dispatch:
 
 jobs:
   build:
-    runs-on: windows-2022   # has VS2022 Build Tools pre-installed
+    runs-on: windows-2022
 
     steps:
-
-    # -----------------------------------------------------------------------
-    # 1. Get the source code
-    # -----------------------------------------------------------------------
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    # -----------------------------------------------------------------------
-    # 2. Install Ruby 3.2 with dev headers + .lib
-    #    The 'mswin' variant matches SketchUp's embedded Ruby (MSVC runtime)
-    # -----------------------------------------------------------------------
-    - name: Setup Ruby 3.2 (mswin)
+    # Install Ruby 3.2 (x64-mingw-ucrt) + MSYS2/MinGW toolchain
+    - name: Setup Ruby 3.2
       uses: ruby/setup-ruby@v1
       with:
         ruby-version: '3.2'
         bundler: none
 
-    # -----------------------------------------------------------------------
-    # 3. Find where Ruby installed its headers and .lib file
-    #    Store the paths as environment variables for the compile step
-    # -----------------------------------------------------------------------
+    # Install MinGW g++ compiler via ridk (comes with setup-ruby)
+    - name: Install MinGW compiler
+      run: ridk exec pacman -S --noconfirm mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-cmake
+
+    # Get Ruby paths
     - name: Locate Ruby headers and lib
       shell: pwsh
       run: |
-        $rubyExe   = (Get-Command ruby).Source
-        $rubyRoot  = Split-Path (Split-Path $rubyExe)
-        $rubyVer   = ruby -e "puts RbConfig::CONFIG['ruby_version']"
-        $arch      = ruby -e "puts RbConfig::CONFIG['arch']"
-        $incDir    = ruby -e "puts RbConfig::CONFIG['rubyhdrdir']"
-        $incArch   = ruby -e "puts RbConfig::CONFIG['rubyarchhdrdir']"
-        $libDir    = ruby -e "puts RbConfig::CONFIG['libdir']"
-        $libName   = ruby -e "puts RbConfig::CONFIG['LIBRUBY']"
+        $incDir   = ruby -e "puts RbConfig::CONFIG['rubyhdrdir']"
+        $incArch  = ruby -e "puts RbConfig::CONFIG['rubyarchhdrdir']"
+        $libDir   = ruby -e "puts RbConfig::CONFIG['libdir']"
+        $libName  = ruby -e "puts RbConfig::CONFIG['LIBRUBY']"
 
-        echo "RUBY_ROOT=$rubyRoot"       >> $env:GITHUB_ENV
-        echo "RUBY_INC=$incDir"          >> $env:GITHUB_ENV
-        echo "RUBY_INC_ARCH=$incArch"    >> $env:GITHUB_ENV
-        echo "RUBY_LIB_DIR=$libDir"      >> $env:GITHUB_ENV
-        echo "RUBY_LIB=$libName"         >> $env:GITHUB_ENV
+        echo "RUBY_INC=$incDir"       >> $env:GITHUB_ENV
+        echo "RUBY_INC_ARCH=$incArch" >> $env:GITHUB_ENV
+        echo "RUBY_LIB_DIR=$libDir"   >> $env:GITHUB_ENV
+        echo "RUBY_LIB=$libName"      >> $env:GITHUB_ENV
 
-        Write-Host "Ruby root  : $rubyRoot"
-        Write-Host "Ruby ver   : $rubyVer ($arch)"
-        Write-Host "Include    : $incDir"
-        Write-Host "Arch inc   : $incArch"
-        Write-Host "Lib dir    : $libDir"
-        Write-Host "Lib name   : $libName"
+        Write-Host "Include  : $incDir"
+        Write-Host "Arch inc : $incArch"
+        Write-Host "Lib dir  : $libDir"
+        Write-Host "Lib name : $libName"
 
-    # -----------------------------------------------------------------------
-    # 4. Configure with CMake
-    # -----------------------------------------------------------------------
+    # Configure with MinGW Makefiles (uses g++ not cl.exe)
     - name: Configure CMake
-      shell: pwsh
+      shell: cmd
       run: |
-        $src = "${{ github.workspace }}/C++Extension"
-        cmake -S $src -B build `
-          -G "Visual Studio 17 2022" `
-          -A x64 `
-          -DRUBY_INCLUDE_DIR="${{ env.RUBY_INC }}" `
-          -DRUBY_INCLUDE_ARCH_DIR="${{ env.RUBY_INC_ARCH }}" `
-          -DRUBY_LIB_DIR="${{ env.RUBY_LIB_DIR }}" `
-          -DRUBY_LIB="${{ env.RUBY_LIB }}" `
-          -DCMAKE_BUILD_TYPE=Release
+        ridk exec cmake -S C++Extension -B build ^
+          -G "MinGW Makefiles" ^
+          -DCMAKE_BUILD_TYPE=Release ^
+          -DRUBY_INCLUDE_DIR="%RUBY_INC%" ^
+          -DRUBY_INCLUDE_ARCH_DIR="%RUBY_INC_ARCH%" ^
+          -DRUBY_LIB_DIR="%RUBY_LIB_DIR%" ^
+          -DRUBY_LIB="%RUBY_LIB%"
 
-    # -----------------------------------------------------------------------
-    # 5. Build
-    # -----------------------------------------------------------------------
+    # Build
     - name: Build msp_lib
-      run: cmake --build build --config Release --parallel
+      run: ridk exec cmake --build build --parallel
 
-    # -----------------------------------------------------------------------
-    # 6. Rename the output DLL to .so (Ruby convention on Windows)
-    # -----------------------------------------------------------------------
-    - name: Rename output to msp_lib.so
+    # Rename .dll to .so (Ruby convention)
+    - name: Rename to msp_lib.so
       shell: pwsh
       run: |
-        $dll = Get-ChildItem -Path build -Recurse -Filter "msp_lib.dll" | Select-Object -First 1
+        $dll = Get-ChildItem -Path build -Filter "msp_lib.dll" | Select-Object -First 1
         if ($dll) {
           $dest = Join-Path $dll.DirectoryName "msp_lib.so"
           Rename-Item $dll.FullName $dest
           Write-Host "Output: $dest"
         } else {
-          Write-Error "msp_lib.dll not found in build output!"
+          Write-Error "msp_lib.dll not found!"
           exit 1
         }
 
-    # -----------------------------------------------------------------------
-    # 7. Upload msp_lib.so as a downloadable artifact
-    # -----------------------------------------------------------------------
+    # Upload artifact
     - name: Upload msp_lib.so
       uses: actions/upload-artifact@v4
       with:
         name: msp_lib_win64_ruby32
-        path: build/Release/msp_lib.so
+        path: build/msp_lib.so
         if-no-files-found: error
